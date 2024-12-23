@@ -227,6 +227,44 @@ impl<T: Document> HNSW<T> {
         }
     }
 
+    pub fn search(&self, query: &[f32], k: size) -> Vec<(T, f32)> {
+        if self.entry_point.is_none() {
+            return Vec::new();
+        }
+
+        let mut cur_ep = self.entry_point.unwrap(); 
+        let mut cur_d = self.dist.distance(self.vectors.get_vector(cur_ep), query);
+        let ep_level = self.levels[cur_ep]; 
+
+        for level in (1..=ep_level).rev() {
+            let mut changed = true; 
+            while changed {
+                changed = false; 
+
+                for &neigh_id in self.neighbors.get_neighbors(level, cur_ep) {
+                    let d = self.dist.distance(self.vectors.get_vector(neigh_id), query); 
+                    if d < cur_d {
+                        cur_d = d; 
+                        cur_ep = neigh_id; 
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        let mut visited = HashSet::new(); 
+        let nearest = self.search_layer(cur_ep, query, k, 0, &mut visited); 
+
+        nearest.into_sorted_vec()
+            .into_iter()
+            .take(k)
+            .map(|e| {
+                let doc_id = self.doc_ids[e.node_id]; 
+                (self.documents[doc_id].clone(), e.distance)
+            })
+            .collect()
+    }
+
     #[inline]
     fn generate_random_level(&mut self) -> usize {
         // TODO
