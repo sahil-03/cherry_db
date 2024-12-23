@@ -7,5 +7,5 @@ name = "distances"
 version = "0.1.0"
 
 [[package]]
-name = "indexer"
+name = "index"
 version = "0.1.0"

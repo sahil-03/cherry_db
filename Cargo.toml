@@ -1,5 +1,4 @@
 [workspace]
 members = [
-    "rust/distances",
-    "rust/indexer"
+    "rust/distances", "rust/index",
 ]
