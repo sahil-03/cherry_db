@@ -1,3 +1,3 @@
-pub mod constructor; 
-pub mod index; 
+pub mod hnsw; 
+pub mod partition; 
 pub mod utils;

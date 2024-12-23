@@ -165,7 +165,9 @@ impl<T: Document> HNSW<T> {
                 changed = false; 
 
                 for &neigh_id in self.neighbors.get_neighbors(lc, cur_ep) {
-                    let d = self.dist.distance(self.vectors.get_vector(neigh_id), self.vectors.get_vector(node_id)); 
+                    let d = self.dist.distance(
+                        self.vectors.get_vector(neigh_id), self.vectors.get_vector(node_id)
+                    ); 
                     if d < cur_d {
                         cur_d = d;
                         cur_ep = neigh_id; 
@@ -203,7 +205,26 @@ impl<T: Document> HNSW<T> {
     }
 
     pub fn batch_insert(&mut self, items: Vec<(Vec<f32>, T)>) {
-        // TODO
+        let entry = self.entry_point.map(|ep| self.vectors.get_vector(ep).to_vec()); 
+
+        // pre-allocate space for batch insert 
+        let n = items.len(); 
+        self.vectors.data.reserve(n * self.vectors.dim); 
+        self.levels.reserve(n);
+        self.doc_ids.reserve(n);
+        self.documents.reserve(n);
+
+        // sort by proximity to entry point
+        let mut sorted_items = items; 
+        if let Some(entry_vector) = entry { 
+            sorted_items.sort_by_cached_key(|(v, _)| {
+                self.dist.distance(v, &entry_vector) as i64
+            });
+        }
+
+        for (vector, document) in sorted_items {
+            self.insert(vector, document);
+        }
     }
 
     #[inline]
