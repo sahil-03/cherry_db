@@ -72,6 +72,7 @@ impl NeighborStorage {
 pub struct HNSW<T: Document> {
     vectors: VectorStorage, 
     neighbors: NeighborStorage,
+    dist: L2DistanceAARCH,
 
     // node metadata 
     levels: Vec<usize>, 
@@ -85,5 +86,136 @@ pub struct HNSW<T: Document> {
 }
 
 impl<T: Document> HNSW<T> {
-    // TODO...
+    pub fn with_config(dim: usize, config: HNSWConfig) -> Self {
+
+    }
+
+    pub fn new(dim: usize, config: Option<HNSWConfig>) {
+        Self::with_config(dim, config.unwrap_or(HNSWConfig::default()))
+    }
+
+    // search layer algorithm (adopted from Malkov, Yahunin)
+    fn search_layer(
+        &self, 
+        entry_point: usize, 
+        query: &[f32], 
+        ef_construction: usize, 
+        level: usize, 
+        visited: &mut HashSet<PriorityElement>
+    ) -> BinaryHeap<PriorityElement> {
+        let mut candidates = BinaryHeap::new(); 
+        let mut results = BinaryHeap::new(); 
+
+        // TODO replace with distance metric
+        let d = self.dist.distance(self.vectors.get_vector(entry_point), query);
+        candidates.push(PriorityElement { distance: -d, node_id: entry_point });
+        results.push(PriorityElement { distance: d, node_id: entry_point });
+        visited.insert(entry_point);
+
+        while !candidates.is_empty() {
+            let PriorityElement { distance: cur_d, node_id: cur_id } = candidates.pop().unwrap(); 
+            let furthest_d = results.peek().unwrap().distance; 
+
+            if -cur_d > furthest_d {
+                break;
+            }
+
+            for &neigh_id in self.neighbors.get_neighbors(level, current) {
+                if visited.insert(neigh_id) {
+                    let neigh_d = self.dist.distance(self.vectors.get_vector(neigh_id), query);
+
+                    if results.len() < ef_construction || neigh_d < furthest_d {
+                        candidates.push(PriorityElement { distance: -neigh_d, node_id: neigh_id });
+                        results.push(PriorityElement { distance: neigh_d, node_id: neigh_id });
+
+                        if results.len() > ef_construction {
+                            results.pop();
+                        }
+                    }
+                }
+            }
+        }
+        results
+    }
+
+    // insert algorithm (adopted from Malkov, Yahunin)
+    pub fn insert(&mut self, vector: Vec<f32>, document: T) -> usize {
+        let node_id = self.vectors.add_vector(vector); 
+        let doc_id = self.documents.len(); 
+        self.documents.push(document); 
+
+        let level = self.generate_random_level(); 
+        self.levels.push(level); 
+        self.doc_ids.push(doc_id); 
+        self.neighbors.add_node(level);
+
+        if self.entry_point.is_none() {
+            self.entry_point = Some(node_id); 
+            return node_id;
+        }
+
+        let mut cur_ep = self.entry_point.unwrap();
+        let mut cur_d = self.dist.distance(
+            self.vectors.get_vector(cur_ep), self.vectors.get_vector(node_id)
+        );
+
+        for lc in (1..=level).rev() {
+            let mut changed = true; 
+            while changed {
+                changed = false; 
+
+                for &neigh_id in self.neighbors.get_neighbors(lc, cur_ep) {
+                    let d = self.dist.distance(self.vectors.get_vector(neigh_id), self.vectors.get_vector(node_id)); 
+                    if d < cur_d {
+                        cur_d = d;
+                        cur_ep = neigh_id; 
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        let mut visited = HashSet::new(); 
+        for lc in (0..=level).rev() {
+            let ef = if lc == 0 { self.config.m0 } else { self.config.m }; 
+            let mut neighbors = self.search_layer(
+                cur_ep, 
+                self.vectors.get_vector(node_id), 
+                self.config.ef_construction, 
+                lc,
+                &mut visited
+            );
+
+            while neighbors.len() > ef {
+                neighbors.pop();
+            }
+
+            for neigh in neighbors {
+                self.neighbors.add_neighbor(lc, node_id, neigh.node_id); 
+                self.neighbors.add_neighbor(lc, neigh.node_id, node_id); 
+            }
+        }
+
+        if level > self.levels[self.entry_point.unwrap()] {
+            self.entry_point = Some(node_id);
+        }
+        node_id
+    }
+
+    pub fn batch_insert(&mut self, items: Vec<(Vec<f32>, T)>) {
+        // TODO
+    }
+
+    #[inline]
+    fn generate_random_level(&mut self) -> usize {
+        // TODO
+    }
+
+    pub fn len(&self) -> usize {
+        self.vectors.data.len() / self.vectors.dim
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vectors.data.is_empty()
+    }
 }
