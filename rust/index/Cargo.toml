@@ -3,4 +3,13 @@ name = "index"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "index"
+path = "src/mod.rs"
+
+
 [dependencies]
+distances = { path = "../distances" }
+rand = { version = "0.8", features = ["small_rng"] }
+
+

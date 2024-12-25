@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
-
-
+use std::{cmp::Ordering, hash::Hasher, hash::Hash};
 
 // Trait for storing Documents that are associated with respective vectors.
 pub trait Document: Clone + Send + Sync + 'static {}
@@ -30,9 +28,16 @@ impl<T: Document> DocumentStore<T> {
 
 
 // Trait for priority queue 
-struct PriorityElement {
-    distance: f32, 
-    node_id: usize, 
+
+pub struct PriorityElement {
+    pub distance: f32, 
+    pub node_id: usize, 
+}
+
+impl Hash for PriorityElement {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.node_id.hash(state)
+    }
 }
 
 impl Ord for PriorityElement {
@@ -59,13 +64,13 @@ impl Eq for PriorityElement {}
 // Trait for vector storage 
 // Cache aligned data storage for all vectors 
 #[repr(align(64))]
-struct VectorStorage {
-    data: Vec<f32>, 
-    dim: usize, 
+pub struct VectorStorage {
+    pub data: Vec<f32>, 
+    pub dim: usize, 
 }
 
 impl VectorStorage {
-    fn new(dim: usize) -> Self {
+    pub fn new(dim: usize) -> Self {
         VectorStorage {
             data: Vec::new(), 
             dim, 
@@ -73,7 +78,7 @@ impl VectorStorage {
     }
 
     #[inline]
-    fn add_vector(&mut self, v: Vec<f32>) -> usize {
+    pub fn add_vector(&mut self, v: Vec<f32>) -> usize {
         debug_assert_eq!(v.len(), self.dim); 
 
         let idx = self.data.len() / self.dim; 
@@ -82,7 +87,7 @@ impl VectorStorage {
     }
 
     #[inline]
-    fn get_vector(&self, idx: usize) -> &[f32] {
+    pub fn get_vector(&self, idx: usize) -> &[f32] {
         let start = idx * self.dim; 
         &self.data[start..start + self.dim]
     }

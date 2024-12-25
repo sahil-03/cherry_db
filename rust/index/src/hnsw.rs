@@ -1,6 +1,6 @@
 use std::collections::{BinaryHeap, HashSet};
-use index::utils::*;
-use distances::distances_aarch::*; 
+use super::utils::{PriorityElement, Document, VectorStorage};
+use distances::{distances::VecDistance, distances_aarch::*}; 
 
 #[derive(Clone)]
 pub struct HNSWConfig {
@@ -87,10 +87,20 @@ pub struct HNSW<T: Document> {
 
 impl<T: Document> HNSW<T> {
     pub fn with_config(dim: usize, config: HNSWConfig) -> Self {
-
+        HNSW {
+            vectors: VectorStorage::new(dim),
+            neighbors: NeighborStorage::new(config.max_level),
+            dist: L2DistanceAARCH,
+            levels: Vec::new(),
+            doc_ids: Vec::new(),
+            documents: Vec::new(),
+            entry_point: None,
+            config,
+            rng: rand::SeedableRng::from_entropy(),
+        }
     }
 
-    pub fn new(dim: usize, config: Option<HNSWConfig>) {
+    pub fn new(dim: usize, config: Option<HNSWConfig>) -> Self {
         Self::with_config(dim, config.unwrap_or(HNSWConfig::default()))
     }
 
@@ -101,12 +111,11 @@ impl<T: Document> HNSW<T> {
         query: &[f32], 
         ef_construction: usize, 
         level: usize, 
-        visited: &mut HashSet<PriorityElement>
+        visited: &mut HashSet<usize>
     ) -> BinaryHeap<PriorityElement> {
         let mut candidates = BinaryHeap::new(); 
         let mut results = BinaryHeap::new(); 
 
-        // TODO replace with distance metric
         let d = self.dist.distance(self.vectors.get_vector(entry_point), query);
         candidates.push(PriorityElement { distance: -d, node_id: entry_point });
         results.push(PriorityElement { distance: d, node_id: entry_point });
@@ -120,7 +129,7 @@ impl<T: Document> HNSW<T> {
                 break;
             }
 
-            for &neigh_id in self.neighbors.get_neighbors(level, current) {
+            for &neigh_id in self.neighbors.get_neighbors(level, cur_id) {
                 if visited.insert(neigh_id) {
                     let neigh_d = self.dist.distance(self.vectors.get_vector(neigh_id), query);
 
@@ -227,7 +236,7 @@ impl<T: Document> HNSW<T> {
         }
     }
 
-    pub fn search(&self, query: &[f32], k: size) -> Vec<(T, f32)> {
+    pub fn search(&self, query: &[f32], k: usize) -> Vec<(T, f32)> {
         if self.entry_point.is_none() {
             return Vec::new();
         }
@@ -267,7 +276,12 @@ impl<T: Document> HNSW<T> {
 
     #[inline]
     fn generate_random_level(&mut self) -> usize {
-        // TODO
+        use rand::Rng;
+        let mut level = 0;
+        while self.rng.gen::<f32>() < self.config.ml_factor && level < self.config.max_level {
+            level += 1;
+        }
+        level
     }
 
     pub fn len(&self) -> usize {
@@ -276,5 +290,49 @@ impl<T: Document> HNSW<T> {
 
     pub fn is_empty(&self) -> bool {
         self.vectors.data.is_empty()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*; 
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct TestDocument {
+        id: usize, 
+        content: String,
+    }
+
+    #[test]
+    fn test_empty_index() {
+        let index: HNSW<TestDocument> = HNSW::new(10, None); 
+        assert!(index.is_empty()); 
+
+        // test query search, expected to return nothing 
+        let query = vec![0.0; 10]; 
+        assert!(index.search(&query, 5).is_empty());
+    }
+
+    #[test]
+    fn test_single_vector() {
+        let mut index: HNSW<TestDocument> = HNSW::new(3, None);
+
+        let doc1: TestDocument = TestDocument { id: 1, content: "abc".to_string() };
+        let v1 = vec![1.0, 2.0, 3.0];
+        index.insert(v1, doc1); 
+
+        let query = vec![1.0, 2.0, 3.0]; 
+        let result = index.search(&query, 1); 
+
+        assert_eq!(result[0].1, 0.0); // checck if distance is 0
+        assert_eq!(result[0].0.content, "abc")  // check contents
+    }
+
+    #[test]
+    fn test_multiple_vector() {
+        let mut index: HNSW<TestDocument> = HNSW::new(128, None);
+
+        // TODO: complete
     }
 }
