@@ -333,6 +333,6 @@ mod tests {
     fn test_multiple_vector() {
         let mut index: HNSW<TestDocument> = HNSW::new(128, None);
 
-        // TODO: complete
+        // TODO: complete test
     }
 }
